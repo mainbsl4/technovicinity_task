@@ -1,0 +1,250 @@
+import { createSlice, PayloadAction } from '@reduxjs/toolkit';
+import { RawMaterial, ReadyProduct, WasteRecord, AuditLog, WasteStatus } from '../../types';
+import { SEED_RAW_MATERIALS, SEED_READY_PRODUCTS, SEED_WASTE_RECORDS, SEED_AUDIT_LOGS } from '../../data/seedData';
+
+interface InventoryState {
+  rawMaterials: RawMaterial[];
+  readyProducts: ReadyProduct[];
+  wasteRecords: WasteRecord[];
+  auditLogs: AuditLog[];
+}
+
+const initialState: InventoryState = {
+  rawMaterials: SEED_RAW_MATERIALS,
+  readyProducts: SEED_READY_PRODUCTS,
+  wasteRecords: SEED_WASTE_RECORDS,
+  auditLogs: SEED_AUDIT_LOGS,
+};
+
+export const inventorySlice = createSlice({
+  name: 'inventory',
+  initialState,
+  reducers: {
+    // Restock an existing raw material
+    restockRawMaterial: (
+      state,
+      action: PayloadAction<{ materialId: string; quantity: number; notes?: string; actor?: string }>
+    ) => {
+      const { materialId, quantity, notes, actor } = action.payload;
+      const material = state.rawMaterials.find((m) => m.id === materialId);
+      if (material && quantity > 0) {
+        material.stockQuantity = Number((material.stockQuantity + quantity).toFixed(4));
+        material.lastUpdated = new Date().toISOString();
+
+        state.auditLogs.unshift({
+          id: `aud-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+          timestamp: new Date().toISOString(),
+          type: 'RESTOCK',
+          referenceId: `RESTOCK-${material.code}`,
+          itemCode: material.code,
+          itemName: material.name,
+          quantityChange: quantity,
+          uom: material.uom,
+          balanceAfter: material.stockQuantity,
+          actor: actor || 'Inventory Manager',
+          notes: notes || `Restocked ${quantity} ${material.uom} into ${material.location}`,
+        });
+      }
+    },
+
+    // Add a new raw material item to catalog
+    addNewRawMaterial: (state, action: PayloadAction<Omit<RawMaterial, 'id' | 'lastUpdated'>>) => {
+      const newMaterial: RawMaterial = {
+        ...action.payload,
+        id: `rm-${Date.now()}`,
+        lastUpdated: new Date().toISOString(),
+      };
+      state.rawMaterials.push(newMaterial);
+
+      state.auditLogs.unshift({
+        id: `aud-${Date.now()}`,
+        timestamp: new Date().toISOString(),
+        type: 'MANUAL_ADJUSTMENT',
+        referenceId: 'NEW_CATALOG_ITEM',
+        itemCode: newMaterial.code,
+        itemName: newMaterial.name,
+        quantityChange: newMaterial.stockQuantity,
+        uom: newMaterial.uom,
+        balanceAfter: newMaterial.stockQuantity,
+        actor: 'Catalog Administrator',
+        notes: `Cataloged new raw material with initial stock of ${newMaterial.stockQuantity} ${newMaterial.uom}`,
+      });
+    },
+
+    // Add or update a Ready Product (Finished Good)
+    addNewReadyProduct: (state, action: PayloadAction<Omit<ReadyProduct, 'id' | 'totalProduced'>>) => {
+      const newProduct: ReadyProduct = {
+        ...action.payload,
+        id: `rp-${Date.now()}`,
+        totalProduced: action.payload.stockQuantity,
+      };
+      state.readyProducts.push(newProduct);
+    },
+
+    // AUTOMATED LIFECYCLE ROUTING REDUCER
+    // Executed when a production order is confirmed and completed
+    executeProductionLifecycleRouting: (
+      state,
+      action: PayloadAction<{
+        orderNumber: string;
+        productCode: string;
+        productName: string;
+        completedQuantity: number;
+        outputUom: RawMaterial['uom'];
+        materialsConsumed: {
+          materialId: string;
+          materialCode: string;
+          materialName: string;
+          baseRequired: number;
+          wasteExpected: number;
+          totalDeducted: number;
+          wastePercentage: number;
+          uom: RawMaterial['uom'];
+        }[];
+        operator: string;
+      }>
+    ) => {
+      const {
+        orderNumber,
+        productCode,
+        productName,
+        completedQuantity,
+        outputUom,
+        materialsConsumed,
+        operator,
+      } = action.payload;
+
+      const now = new Date().toISOString();
+
+      // 1. Credit Ready Product (Finished Good)
+      let product = state.readyProducts.find((p) => p.code === productCode);
+      if (product) {
+        product.stockQuantity = Number((product.stockQuantity + completedQuantity).toFixed(4));
+        product.totalProduced = Number((product.totalProduced + completedQuantity).toFixed(4));
+        product.lastProducedAt = now;
+      } else {
+        // Auto-register if doesn't exist
+        state.readyProducts.push({
+          id: `rp-${Date.now()}`,
+          code: productCode,
+          name: productName,
+          description: `Finished product manufactured under ${orderNumber}`,
+          stockQuantity: completedQuantity,
+          uom: outputUom,
+          unitValue: 100.0,
+          bomId: '',
+          category: 'Manufactured Goods',
+          totalProduced: completedQuantity,
+          lastProducedAt: now,
+        });
+      }
+
+      // Log Ready Product routing audit
+      state.auditLogs.unshift({
+        id: `aud-${Date.now()}-out`,
+        timestamp: now,
+        type: 'PRODUCTION_OUTPUT',
+        referenceId: orderNumber,
+        itemCode: productCode,
+        itemName: productName,
+        quantityChange: completedQuantity,
+        uom: outputUom,
+        balanceAfter: product ? product.stockQuantity : completedQuantity,
+        actor: operator,
+        notes: `Production completed: Routed ${completedQuantity} ${outputUom} to Ready Product inventory.`,
+      });
+
+      // 2. Deduct Raw Materials and 3. Forward Waste to Waste Inventory
+      materialsConsumed.forEach((mat) => {
+        const rawMat = state.rawMaterials.find((m) => m.id === mat.materialId);
+        if (rawMat) {
+          // Deduct from stock (Base + Waste allowance)
+          rawMat.stockQuantity = Number(Math.max(0, rawMat.stockQuantity - mat.totalDeducted).toFixed(4));
+          rawMat.lastUpdated = now;
+
+          // Audit log for consumption
+          state.auditLogs.unshift({
+            id: `aud-${Date.now()}-con-${mat.materialCode}`,
+            timestamp: now,
+            type: 'PRODUCTION_CONSUMPTION',
+            referenceId: orderNumber,
+            itemCode: mat.materialCode,
+            itemName: mat.materialName,
+            quantityChange: -mat.totalDeducted,
+            uom: mat.uom,
+            balanceAfter: rawMat.stockQuantity,
+            actor: 'Lifecycle Auto-Router',
+            notes: `Consumed for order ${orderNumber} (${mat.baseRequired} ${mat.uom} net + ${mat.wasteExpected} ${mat.uom} ${mat.wastePercentage}% waste).`,
+          });
+        }
+
+        // Forward calculated waste to Waste Inventory if waste quantity > 0
+        if (mat.wasteExpected > 0) {
+          const wasteRecord: WasteRecord = {
+            id: `wst-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+            orderNumber,
+            productCode,
+            materialId: mat.materialId,
+            materialCode: mat.materialCode,
+            materialName: mat.materialName,
+            wasteQuantity: Number(mat.wasteExpected.toFixed(4)),
+            uom: mat.uom,
+            wastePercentage: mat.wastePercentage,
+            recordedAt: now,
+            reason: `Standard BOM process waste (${mat.wastePercentage}%) generated during production run.`,
+            status: 'LOGGED',
+          };
+          state.wasteRecords.unshift(wasteRecord);
+
+          // Audit log for waste routing
+          state.auditLogs.unshift({
+            id: `aud-${Date.now()}-wst-${mat.materialCode}`,
+            timestamp: now,
+            type: 'WASTE_ROUTING',
+            referenceId: orderNumber,
+            itemCode: mat.materialCode,
+            itemName: mat.materialName,
+            quantityChange: Number(mat.wasteExpected.toFixed(4)),
+            uom: mat.uom,
+            actor: 'Lifecycle Auto-Router',
+            notes: `Material loss routing: Forwarded ${mat.wasteExpected} ${mat.uom} to Waste Management inventory.`,
+          });
+        }
+      });
+    },
+
+    // Update waste disposition status (e.g. Recycled, Disposed, Salvaged)
+    updateWasteStatus: (
+      state,
+      action: PayloadAction<{ wasteId: string; status: WasteStatus; notes?: string }>
+    ) => {
+      const record = state.wasteRecords.find((w) => w.id === action.payload.wasteId);
+      if (record) {
+        record.status = action.payload.status;
+        record.dispositionDate = new Date().toISOString();
+        if (action.payload.notes) {
+          record.dispositionNotes = action.payload.notes;
+        }
+      }
+    },
+
+    // Reset entire inventory to initial demo seed data
+    resetInventoryToSeed: (state) => {
+      state.rawMaterials = SEED_RAW_MATERIALS;
+      state.readyProducts = SEED_READY_PRODUCTS;
+      state.wasteRecords = SEED_WASTE_RECORDS;
+      state.auditLogs = SEED_AUDIT_LOGS;
+    },
+  },
+});
+
+export const {
+  restockRawMaterial,
+  addNewRawMaterial,
+  addNewReadyProduct,
+  executeProductionLifecycleRouting,
+  updateWasteStatus,
+  resetInventoryToSeed,
+} = inventorySlice.actions;
+
+export default inventorySlice.reducer;
