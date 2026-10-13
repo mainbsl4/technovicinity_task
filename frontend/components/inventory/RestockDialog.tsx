@@ -3,6 +3,7 @@
 import React, { useState } from 'react';
 import { useAppDispatch, useAppSelector } from '@/lib/redux/hooks';
 import { restockRawMaterial } from '@/lib/redux/slices/inventorySlice';
+import { api } from '@/lib/api';
 import { Boxes, X, Check, ArrowUpRight } from 'lucide-react';
 
 interface RestockDialogProps {
@@ -51,6 +52,11 @@ export const RestockDialog: React.FC<RestockDialogProps> = ({
         notes,
       })
     );
+
+    const newStock = Number((currentMaterial.stockQuantity + qty).toFixed(4));
+    api.updateRawMaterialStock(currentMaterial.id, newStock).catch((err) => {
+      console.warn('Backend restock patch failed:', err);
+    });
 
     onClose();
   };

@@ -1,13 +1,11 @@
 import { createSlice, PayloadAction } from '@reduxjs/toolkit';
 import { ProductionOrder, ProductionOrderStatus } from '../../types';
-import { SEED_PRODUCTION_ORDERS } from '../../data/seedData';
-
 interface ProductionState {
   orders: ProductionOrder[];
 }
 
 const initialState: ProductionState = {
-  orders: SEED_PRODUCTION_ORDERS,
+  orders: [],
 };
 
 export const productionSlice = createSlice({
@@ -30,7 +28,12 @@ export const productionSlice = createSlice({
 
     updateOrderStatus: (
       state,
-      action: PayloadAction<{ orderId: string; status: ProductionOrderStatus; notes?: string }>
+      action: PayloadAction<{
+        orderId: string;
+        status: ProductionOrderStatus;
+        notes?: string;
+        materialsDeducted?: boolean;
+      }>
     ) => {
       const order = state.orders.find((o) => o.id === action.payload.orderId);
       if (order) {
@@ -40,6 +43,9 @@ export const productionSlice = createSlice({
         }
         if (action.payload.notes) {
           order.notes = action.payload.notes;
+        }
+        if (action.payload.materialsDeducted !== undefined) {
+          order.materialsDeducted = action.payload.materialsDeducted;
         }
       }
     },
@@ -69,8 +75,12 @@ export const productionSlice = createSlice({
       }
     },
 
+    setOrders: (state, action: PayloadAction<ProductionOrder[]>) => {
+      state.orders = action.payload;
+    },
+
     resetOrdersToSeed: (state) => {
-      state.orders = SEED_PRODUCTION_ORDERS;
+      state.orders = [];
     },
   },
 });
@@ -80,6 +90,7 @@ export const {
   updateOrderStatus,
   completeProductionOrder,
   cancelProductionOrder,
+  setOrders,
   resetOrdersToSeed,
 } = productionSlice.actions;
 

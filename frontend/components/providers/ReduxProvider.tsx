@@ -34,13 +34,13 @@ export default function ReduxProvider({
           ]);
 
           if (storeRef.current) {
-            if (boms.status === 'fulfilled' && Array.isArray(boms.value) && boms.value.length > 0) {
+            if (boms.status === 'fulfilled' && Array.isArray(boms.value)) {
               storeRef.current.dispatch(setBOMs(boms.value));
             }
-            if (prods.status === 'fulfilled' && Array.isArray(prods.value) && prods.value.length > 0) {
+            if (prods.status === 'fulfilled' && Array.isArray(prods.value)) {
               storeRef.current.dispatch(setReadyProducts(prods.value));
             }
-            if (mats.status === 'fulfilled' && Array.isArray(mats.value) && mats.value.length > 0) {
+            if (mats.status === 'fulfilled' && Array.isArray(mats.value)) {
               storeRef.current.dispatch(setRawMaterials(mats.value));
             }
           }

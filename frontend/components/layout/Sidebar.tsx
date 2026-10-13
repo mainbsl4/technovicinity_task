@@ -69,6 +69,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
       dispatch(resetBOMsToSeed());
       dispatch(resetOrdersToSeed());
       localStorage.removeItem('vortex_mes_state_v1');
+      window.location.reload();
     }
   };
 

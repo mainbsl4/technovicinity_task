@@ -130,4 +130,5 @@ export interface ProductionOrder {
   notes?: string;
   actualProducedQuantity?: number;
   calculatedRequirements?: OrderMaterialRequirement[];
+  materialsDeducted?: boolean;
 }

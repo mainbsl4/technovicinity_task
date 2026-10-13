@@ -5,6 +5,7 @@ import { useAppDispatch, useAppSelector } from '@/lib/redux/hooks';
 import { ProductionOrder } from '@/lib/types';
 import { executeProductionLifecycleRouting } from '@/lib/redux/slices/inventorySlice';
 import { completeProductionOrder } from '@/lib/redux/slices/productionSlice';
+import { api } from '@/lib/api';
 import { 
   CheckCircle2, 
   X, 
@@ -32,6 +33,7 @@ export const OrderCompletionModal: React.FC<OrderCompletionModalProps> = ({
   const dispatch = useAppDispatch();
   const boms = useAppSelector((state) => state.bom.boms);
   const rawMaterials = useAppSelector((state) => state.inventory.rawMaterials);
+  const readyProducts = useAppSelector((state) => state.inventory.readyProducts);
 
   const [actualQuantity, setActualQuantity] = useState<string>(
     order ? order.targetQuantity.toString() : '1'
@@ -54,6 +56,12 @@ export const OrderCompletionModal: React.FC<OrderCompletionModalProps> = ({
   // Calculate material consumption & waste based on BOM
   const consumptionPlan = bom
     ? bom.items.map((item) => {
+        const liveMat = rawMaterials.find(
+          (m) =>
+            (item.materialId && m.id === item.materialId) ||
+            (item.materialCode && m.code.toUpperCase() === item.materialCode.toUpperCase())
+        );
+        const resolvedId = liveMat ? liveMat.id : item.materialId;
         const baseRequired = Number((item.quantityPerUnit * completedQty).toFixed(4));
         const wasteExpected = Number(
           ((baseRequired * item.wastePercentage) / 100).toFixed(4)
@@ -61,7 +69,7 @@ export const OrderCompletionModal: React.FC<OrderCompletionModalProps> = ({
         const totalDeducted = Number((baseRequired + wasteExpected).toFixed(4));
 
         return {
-          materialId: item.materialId,
+          materialId: resolvedId,
           materialCode: item.materialCode,
           materialName: item.materialName,
           baseRequired,
@@ -76,6 +84,8 @@ export const OrderCompletionModal: React.FC<OrderCompletionModalProps> = ({
   const handleConfirmCompletion = () => {
     if (!bom) return;
 
+    const skipMaterialDeduction = Boolean(order.materialsDeducted);
+
     // 1. Dispatch Automated Lifecycle Routing to Inventory
     dispatch(
       executeProductionLifecycleRouting({
@@ -86,6 +96,7 @@ export const OrderCompletionModal: React.FC<OrderCompletionModalProps> = ({
         outputUom: order.uom,
         materialsConsumed: consumptionPlan,
         operator: order.operator,
+        skipMaterialDeduction,
       })
     );
 
@@ -97,6 +108,24 @@ export const OrderCompletionModal: React.FC<OrderCompletionModalProps> = ({
         notes: operatorNote,
       })
     );
+
+    // 3. Sync finished product to backend API
+    const existingProd = readyProducts.find((p) => p.code === order.productCode);
+    const updatedStock = Number(((existingProd?.stockQuantity || 0) + completedQty).toFixed(4));
+    const updatedTotal = Number(((existingProd?.totalProduced || 0) + completedQty).toFixed(4));
+    api.updateProductStock(order.productCode, updatedStock, updatedTotal).catch((err) => {
+      console.warn('Backend product stock sync bypassed:', err);
+    });
+
+    if (!skipMaterialDeduction) {
+      consumptionPlan.forEach((mat) => {
+        const liveMat = rawMaterials.find((m) => m.id === mat.materialId || m.code === mat.materialCode);
+        if (liveMat) {
+          const newStock = Math.max(0, Number((liveMat.stockQuantity - mat.totalDeducted).toFixed(4)));
+          api.updateRawMaterialStock(mat.materialId || mat.materialCode, newStock).catch(() => {});
+        }
+      });
+    }
 
     setIsSuccess(true);
     setTimeout(() => {

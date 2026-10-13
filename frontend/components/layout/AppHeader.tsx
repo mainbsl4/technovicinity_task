@@ -37,6 +37,7 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
       dispatch(resetBOMsToSeed());
       dispatch(resetOrdersToSeed());
       localStorage.removeItem('vortex_mes_state_v1');
+      window.location.reload();
     }
   };
 

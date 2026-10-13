@@ -1,13 +1,11 @@
 import { createSlice, PayloadAction } from '@reduxjs/toolkit';
 import { BillOfMaterials } from '../../types';
-import { SEED_BOMS } from '../../data/seedData';
-
 interface BOMState {
   boms: BillOfMaterials[];
 }
 
 const initialState: BOMState = {
-  boms: SEED_BOMS,
+  boms: [],
 };
 
 export const bomSlice = createSlice({
@@ -44,7 +42,7 @@ export const bomSlice = createSlice({
     },
 
     resetBOMsToSeed: (state) => {
-      state.boms = SEED_BOMS;
+      state.boms = [];
     },
   },
 });

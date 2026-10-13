@@ -126,4 +126,59 @@ export const api = {
       lastUpdated: m.last_updated,
     }));
   },
+
+  updateRawMaterialStock: async (idOrCode: string, newStock: number): Promise<void> => {
+    const cleanId = String(idOrCode).replace('rm-', '');
+    // If it's a numeric ID, use primary key endpoint
+    if (/^\d+$/.test(cleanId)) {
+      await fetchJSON(`/raw-materials/${cleanId}/`, {
+        method: 'PATCH',
+        body: JSON.stringify({ stock_quantity: newStock }),
+      });
+    } else {
+      // Find by code from current list then patch by pk
+      try {
+        const rawItems = await fetchJSON<any[]>('/raw-materials/');
+        const matched = rawItems.find(
+          (m: any) => m.code.toUpperCase() === idOrCode.toUpperCase() || String(m.id) === cleanId
+        );
+        if (matched) {
+          await fetchJSON(`/raw-materials/${matched.id}/`, {
+            method: 'PATCH',
+            body: JSON.stringify({ stock_quantity: newStock }),
+          });
+        }
+      } catch (err) {
+        console.warn('Failed to patch raw material by code:', err);
+      }
+    }
+  },
+
+  updateProductStock: async (idOrCode: string, newStock: number, totalProduced?: number): Promise<void> => {
+    const cleanId = String(idOrCode).replace('rp-', '');
+    const body: any = { stock_quantity: newStock };
+    if (totalProduced !== undefined) body.total_produced = totalProduced;
+
+    if (/^\d+$/.test(cleanId)) {
+      await fetchJSON(`/products/${cleanId}/`, {
+        method: 'PATCH',
+        body: JSON.stringify(body),
+      });
+    } else {
+      try {
+        const prods = await fetchJSON<any[]>('/products/');
+        const matched = prods.find(
+          (p: any) => p.code.toUpperCase() === idOrCode.toUpperCase() || String(p.id) === cleanId
+        );
+        if (matched) {
+          await fetchJSON(`/products/${matched.id}/`, {
+            method: 'PATCH',
+            body: JSON.stringify(body),
+          });
+        }
+      } catch (err) {
+        console.warn('Failed to patch product by code:', err);
+      }
+    }
+  },
 };

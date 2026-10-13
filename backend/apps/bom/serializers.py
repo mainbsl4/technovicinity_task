@@ -1,6 +1,7 @@
 from rest_framework import serializers
 from .models import BillOfMaterials, BOMItem
 from apps.products.models import Product
+from apps.raw_materials.models import RawMaterial
 
 
 class BOMItemSerializer(serializers.ModelSerializer):
@@ -74,6 +75,10 @@ class BillOfMaterialsSerializer(serializers.ModelSerializer):
 
         bom = BillOfMaterials.objects.create(**validated_data)
         for item_data in items_data:
+            if not item_data.get("material_id"):
+                mat = RawMaterial.objects.filter(code__iexact=item_data.get("material_code", "")).first()
+                if mat:
+                    item_data["material_id"] = f"rm-{mat.id}"
             BOMItem.objects.create(bom=bom, **item_data)
         return bom
 
@@ -93,6 +98,10 @@ class BillOfMaterialsSerializer(serializers.ModelSerializer):
         if items_data is not None:
             instance.items.all().delete()
             for item_data in items_data:
+                if not item_data.get("material_id"):
+                    mat = RawMaterial.objects.filter(code__iexact=item_data.get("material_code", "")).first()
+                    if mat:
+                        item_data["material_id"] = f"rm-{mat.id}"
                 BOMItem.objects.create(bom=instance, **item_data)
 
         return instance

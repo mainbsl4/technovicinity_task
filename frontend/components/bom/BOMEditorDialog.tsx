@@ -74,6 +74,8 @@ export const BOMEditorDialog: React.FC<BOMEditorDialogProps> = ({
   const [description, setDescription] = useState(editingBOM?.description || '');
   const [version, setVersion] = useState(editingBOM?.version || '1.0');
   const [outputUom, setOutputUom] = useState<UnitOfMeasure>(editingBOM?.outputUom || 'pcs');
+  const [isSaving, setIsSaving] = useState<boolean>(false);
+  const [apiError, setApiError] = useState<string | null>(null);
 
   // Compute other BOMs excluding current one being edited
   const otherBOMs = React.useMemo(() => {
@@ -267,12 +269,13 @@ export const BOMEditorDialog: React.FC<BOMEditorDialogProps> = ({
     );
   };
 
-  const [isSaving, setIsSaving] = useState<boolean>(false);
-  const [apiError, setApiError] = useState<string | null>(null);
-
   // Calculate estimated unit cost
   const estimatedTotalCost = items.reduce((acc, row) => {
-    const mat = rawMaterials.find((m) => m.id === row.materialId);
+    const mat = rawMaterials.find(
+      (m) =>
+        (row.materialId && m.id === row.materialId) ||
+        (row.materialCode && m.code.toUpperCase() === row.materialCode.toUpperCase())
+    );
     if (!mat) return acc;
     const totalQtyNeeded = row.quantityPerUnit * (1 + row.wastePercentage / 100);
     return acc + totalQtyNeeded * mat.unitCost;

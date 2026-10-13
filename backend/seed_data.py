@@ -271,6 +271,9 @@ for b_data in boms_data:
     )
     bom.items.all().delete()
     for it in items:
+        mat = RawMaterial.objects.filter(code__iexact=it.get("material_code", "")).first()
+        if mat:
+            it["material_id"] = f"rm-{mat.id}"
         BOMItem.objects.create(bom=bom, **it)
 
 print(f"Seeded {len(boms_data)} Bill of Materials.")

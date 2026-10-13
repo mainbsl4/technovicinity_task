@@ -4,6 +4,8 @@ import React, { useState } from 'react';
 import { useAppDispatch, useAppSelector } from '@/lib/redux/hooks';
 import { ProductionOrder, ProductionOrderStatus } from '@/lib/types';
 import { updateOrderStatus, cancelProductionOrder } from '@/lib/redux/slices/productionSlice';
+import { consumeRawMaterialsForOrder } from '@/lib/redux/slices/inventorySlice';
+import { api } from '@/lib/api';
 import { OrderCompletionModal } from './OrderCompletionModal';
 import { 
   Play, 
@@ -30,6 +32,8 @@ export const ProductionHub: React.FC<ProductionHubProps> = ({
 }) => {
   const dispatch = useAppDispatch();
   const orders = useAppSelector((state) => state.production.orders);
+  const boms = useAppSelector((state) => state.bom.boms);
+  const rawMaterials = useAppSelector((state) => state.inventory.rawMaterials);
 
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('ALL');
@@ -86,7 +90,59 @@ export const ProductionHub: React.FC<ProductionHubProps> = ({
   };
 
   const handleStartRun = (orderId: string) => {
-    dispatch(updateOrderStatus({ orderId, status: 'IN_PROGRESS' }));
+    const order = orders.find((o) => o.id === orderId);
+    if (order && !order.materialsDeducted) {
+      const bom = boms.find((b) => b.id === order.bomId);
+      if (bom) {
+        const materialsConsumed = bom.items.map((item) => {
+          const liveMat = rawMaterials.find(
+            (m) =>
+              (item.materialId && m.id === item.materialId) ||
+              (item.materialCode && m.code.toUpperCase() === item.materialCode.toUpperCase())
+          );
+          const baseRequired = Number((item.quantityPerUnit * order.targetQuantity).toFixed(4));
+          const wasteExpected = Number(((baseRequired * item.wastePercentage) / 100).toFixed(4));
+          const totalDeducted = Number((baseRequired + wasteExpected).toFixed(4));
+          return {
+            materialId: liveMat ? liveMat.id : item.materialId,
+            materialCode: item.materialCode,
+            materialName: item.materialName,
+            baseRequired,
+            wasteExpected,
+            totalDeducted,
+            wastePercentage: item.wastePercentage,
+            uom: item.uom,
+          };
+        });
+
+        dispatch(
+          consumeRawMaterialsForOrder({
+            orderNumber: order.orderNumber,
+            productCode: order.productCode,
+            materialsConsumed,
+            operator: order.operator,
+          })
+        );
+
+        // Dynamically update raw material stock on backend API
+        materialsConsumed.forEach((mat) => {
+          const liveMat = rawMaterials.find(
+            (m) =>
+              (mat.materialId && m.id === mat.materialId) ||
+              (mat.materialCode && m.code.toUpperCase() === mat.materialCode.toUpperCase())
+          );
+          if (liveMat) {
+            const newStock = Math.max(0, Number((liveMat.stockQuantity - mat.totalDeducted).toFixed(4)));
+            api.updateRawMaterialStock(liveMat.id || mat.materialCode, newStock).catch((err) => {
+              console.warn(`Backend stock update failed for ${mat.materialCode}:`, err);
+            });
+          }
+        });
+      }
+      dispatch(updateOrderStatus({ orderId, status: 'IN_PROGRESS', materialsDeducted: true }));
+    } else {
+      dispatch(updateOrderStatus({ orderId, status: 'IN_PROGRESS' }));
+    }
   };
 
   const handleCancel = (orderId: string) => {

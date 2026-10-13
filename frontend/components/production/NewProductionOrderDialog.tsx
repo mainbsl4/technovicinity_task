@@ -3,6 +3,11 @@
 import React, { useState, useMemo } from 'react';
 import { useAppDispatch, useAppSelector } from '@/lib/redux/hooks';
 import { createProductionOrder } from '@/lib/redux/slices/productionSlice';
+import { 
+  consumeRawMaterialsForOrder, 
+  executeProductionLifecycleRouting 
+} from '@/lib/redux/slices/inventorySlice';
+import { api } from '@/lib/api';
 import { OrderMaterialRequirement, ProductionOrderStatus } from '@/lib/types';
 import { 
   Plus, 
@@ -33,6 +38,7 @@ export const NewProductionOrderDialog: React.FC<NewProductionOrderDialogProps> =
   const dispatch = useAppDispatch();
   const boms = useAppSelector((state) => state.bom.boms);
   const rawMaterials = useAppSelector((state) => state.inventory.rawMaterials);
+  const readyProducts = useAppSelector((state) => state.inventory.readyProducts);
 
   const [selectedBOMId, setSelectedBOMId] = useState<string>(
     preselectedBOMId || (boms[0]?.id ?? '')
@@ -70,8 +76,13 @@ export const NewProductionOrderDialog: React.FC<NewProductionOrderDialogProps> =
     if (!selectedBOM || parsedTargetQty <= 0) return [];
 
     return selectedBOM.items.map((item) => {
-      const liveMaterial = rawMaterials.find((m) => m.id === item.materialId);
+      const liveMaterial = rawMaterials.find(
+        (m) =>
+          (item.materialId && m.id === item.materialId) ||
+          (item.materialCode && m.code.toUpperCase() === item.materialCode.toUpperCase())
+      );
       const currentStock = liveMaterial ? liveMaterial.stockQuantity : 0;
+      const resolvedMaterialId = liveMaterial ? liveMaterial.id : item.materialId;
 
       const baseRequired = Number((item.quantityPerUnit * parsedTargetQty).toFixed(4));
       const expectedWasteQuantity = Number(
@@ -84,7 +95,7 @@ export const NewProductionOrderDialog: React.FC<NewProductionOrderDialogProps> =
         : Number((totalRequired - currentStock).toFixed(4));
 
       return {
-        materialId: item.materialId,
+        materialId: resolvedMaterialId,
         materialCode: item.materialCode,
         materialName: item.materialName,
         uom: item.uom,
@@ -107,6 +118,67 @@ export const NewProductionOrderDialog: React.FC<NewProductionOrderDialogProps> =
     e.preventDefault();
     if (!selectedBOM || parsedTargetQty <= 0) return;
 
+    const orderCount = Date.now().toString().slice(-4);
+    const orderNumber = `WO-2026-${orderCount}`;
+    const shouldDeductMaterials = initialStatus === 'IN_PROGRESS' || initialStatus === 'COMPLETED';
+
+    const materialsConsumed = requirements.map((req) => ({
+      materialId: req.materialId,
+      materialCode: req.materialCode,
+      materialName: req.materialName,
+      baseRequired: req.baseRequired,
+      wasteExpected: req.expectedWasteQuantity,
+      totalDeducted: req.totalRequired,
+      wastePercentage: req.wastePercentage,
+      uom: req.uom,
+    }));
+
+    if (shouldDeductMaterials) {
+      if (initialStatus === 'COMPLETED') {
+        dispatch(
+          executeProductionLifecycleRouting({
+            orderNumber,
+            productCode: selectedBOM.productCode,
+            productName: selectedBOM.productName,
+            completedQuantity: parsedTargetQty,
+            outputUom: selectedBOM.outputUom,
+            materialsConsumed,
+            operator,
+          })
+        );
+        const existingProd = readyProducts.find((p) => p.code === selectedBOM.productCode);
+        const newStock = Number(((existingProd?.stockQuantity || 0) + parsedTargetQty).toFixed(4));
+        const newTotal = Number(((existingProd?.totalProduced || 0) + parsedTargetQty).toFixed(4));
+        api.updateProductStock(selectedBOM.productCode, newStock, newTotal).catch((err) => {
+          console.warn('Backend product stock sync bypassed:', err);
+        });
+      } else {
+        dispatch(
+          consumeRawMaterialsForOrder({
+            orderNumber,
+            productCode: selectedBOM.productCode,
+            materialsConsumed,
+            operator,
+          })
+        );
+      }
+
+      // Dynamically update raw material stock on backend API
+      requirements.forEach((req) => {
+        const liveMat = rawMaterials.find(
+          (m) =>
+            (req.materialId && m.id === req.materialId) ||
+            (req.materialCode && m.code.toUpperCase() === req.materialCode.toUpperCase())
+        );
+        if (liveMat) {
+          const newStock = Math.max(0, Number((liveMat.stockQuantity - req.totalRequired).toFixed(4)));
+          api.updateRawMaterialStock(liveMat.id || req.materialCode, newStock).catch((err) => {
+            console.warn(`Backend update failed for ${req.materialCode}:`, err);
+          });
+        }
+      });
+    }
+
     dispatch(
       createProductionOrder({
         productCode: selectedBOM.productCode,
@@ -119,9 +191,12 @@ export const NewProductionOrderDialog: React.FC<NewProductionOrderDialogProps> =
         line,
         batchNumber,
         scheduledDate,
-        startedAt: initialStatus === 'IN_PROGRESS' ? new Date().toISOString() : undefined,
+        startedAt: initialStatus === 'IN_PROGRESS' || initialStatus === 'COMPLETED' ? new Date().toISOString() : undefined,
+        completedAt: initialStatus === 'COMPLETED' ? new Date().toISOString() : undefined,
+        actualProducedQuantity: initialStatus === 'COMPLETED' ? parsedTargetQty : undefined,
         notes,
         calculatedRequirements: requirements,
+        materialsDeducted: shouldDeductMaterials,
       })
     );
 
@@ -235,8 +310,9 @@ export const NewProductionOrderDialog: React.FC<NewProductionOrderDialogProps> =
                 onChange={(e) => setInitialStatus(e.target.value as ProductionOrderStatus)}
                 className="w-full bg-zinc-950 border border-zinc-800 focus:border-amber-500 rounded-lg px-2.5 py-1.5 text-xs text-zinc-100 outline-none"
               >
-                <option value="IN_PROGRESS">Run In-Progress</option>
-                <option value="STAGED">Staged for Shift</option>
+                <option value="IN_PROGRESS">Run In-Progress (Deduct Materials)</option>
+                <option value="COMPLETED">Instant Output (Deduct RM + Output FG)</option>
+                <option value="STAGED">Staged for Shift (Reserve only)</option>
                 <option value="DRAFT">Draft Order</option>
               </select>
             </div>
@@ -281,7 +357,7 @@ export const NewProductionOrderDialog: React.FC<NewProductionOrderDialogProps> =
                 <tbody className="divide-y divide-zinc-800/60 font-sans">
                   {requirements.map((req) => (
                     <tr
-                      key={req.materialId}
+                      key={req.materialId || req.materialCode}
                       className={!req.isSufficient ? 'bg-rose-950/20' : 'hover:bg-zinc-800/20'}
                     >
                       {/* Material */}
