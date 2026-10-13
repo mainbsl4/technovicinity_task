@@ -3,16 +3,28 @@ import inventoryReducer from './slices/inventorySlice';
 import bomReducer from './slices/bomSlice';
 import productionReducer from './slices/productionSlice';
 
-const rootReducer = combineReducers({
+const appReducer = combineReducers({
   inventory: inventoryReducer,
   bom: bomReducer,
   production: productionReducer,
 });
 
+export const REHYDRATE_ACTION = 'app/rehydrate';
+
+const rootReducer = (state: ReturnType<typeof appReducer> | undefined, action: any): ReturnType<typeof appReducer> => {
+  if (action.type === REHYDRATE_ACTION && action.payload) {
+    return {
+      ...state,
+      ...action.payload,
+    };
+  }
+  return appReducer(state, action);
+};
+
 const STORAGE_KEY = 'vortex_mes_state_v1';
 
 // Load persisted state from localStorage if available
-const loadState = () => {
+export const loadState = () => {
   if (typeof window === 'undefined') return undefined;
   try {
     const serializedState = localStorage.getItem(STORAGE_KEY);
@@ -38,11 +50,8 @@ const saveState = (state: ReturnType<typeof rootReducer>) => {
 };
 
 export const makeStore = () => {
-  const preloadedState = loadState();
-
   const store = configureStore({
     reducer: rootReducer,
-    preloadedState,
   });
 
   // Subscribe to changes to update localStorage
