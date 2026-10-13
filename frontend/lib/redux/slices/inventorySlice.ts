@@ -81,6 +81,25 @@ export const inventorySlice = createSlice({
       state.readyProducts.push(newProduct);
     },
 
+    // Link a BOM recipe ID to a Ready Product
+    setProductBOMId: (
+      state,
+      action: PayloadAction<{ productCode: string; bomId: string }>
+    ) => {
+      const product = state.readyProducts.find((p) => p.code === action.payload.productCode);
+      if (product) {
+        product.bomId = action.payload.bomId;
+      }
+    },
+
+    // Unlink BOM if a BOM recipe is deleted
+    unlinkProductBOM: (state, action: PayloadAction<string>) => {
+      const product = state.readyProducts.find((p) => p.bomId === action.payload);
+      if (product) {
+        product.bomId = '';
+      }
+    },
+
     // AUTOMATED LIFECYCLE ROUTING REDUCER
     // Executed when a production order is confirmed and completed
     executeProductionLifecycleRouting: (
@@ -242,6 +261,8 @@ export const {
   restockRawMaterial,
   addNewRawMaterial,
   addNewReadyProduct,
+  setProductBOMId,
+  unlinkProductBOM,
   executeProductionLifecycleRouting,
   updateWasteStatus,
   resetInventoryToSeed,

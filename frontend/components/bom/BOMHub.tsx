@@ -4,6 +4,7 @@ import React, { useState } from 'react';
 import { useAppDispatch, useAppSelector } from '@/lib/redux/hooks';
 import { BillOfMaterials } from '@/lib/types';
 import { deleteBOM } from '@/lib/redux/slices/bomSlice';
+import { unlinkProductBOM } from '@/lib/redux/slices/inventorySlice';
 import { BOMEditorDialog } from './BOMEditorDialog';
 import { 
   Layers, 
@@ -45,6 +46,7 @@ export const BOMHub: React.FC<BOMHubProps> = ({
   const handleDelete = (id: string, name: string) => {
     if (confirm(`Delete BOM recipe for "${name}"?`)) {
       dispatch(deleteBOM(id));
+      dispatch(unlinkProductBOM(id));
     }
   };
 

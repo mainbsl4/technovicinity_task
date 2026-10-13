@@ -3,6 +3,7 @@
 import React, { useState } from 'react';
 import { useAppDispatch, useAppSelector } from '@/lib/redux/hooks';
 import { addBOM, updateBOM } from '@/lib/redux/slices/bomSlice';
+import { setProductBOMId, addNewReadyProduct } from '@/lib/redux/slices/inventorySlice';
 import { BillOfMaterials, BOMMaterialItem, UnitOfMeasure } from '@/lib/types';
 import { 
   Layers, 
@@ -12,7 +13,10 @@ import {
   AlertCircle, 
   Check, 
   Sparkles,
-  Info
+  Info,
+  Lock,
+  CheckCircle2,
+  AlertTriangle
 } from 'lucide-react';
 
 interface BOMEditorDialogProps {
@@ -21,19 +25,73 @@ interface BOMEditorDialogProps {
   editingBOM?: BillOfMaterials | null;
 }
 
+// Auto-generates clean, standardized SKU from product name
+const generateSKUFromName = (name: string): string => {
+  if (!name || !name.trim()) {
+    const randomSuffix = Math.floor(100 + Math.random() * 900);
+    return `FG-PROD-${randomSuffix}`;
+  }
+
+  const cleanWords = name
+    .replace(/[^a-zA-Z0-9\s]/g, '')
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean);
+
+  if (cleanWords.length === 0) {
+    const randomSuffix = Math.floor(100 + Math.random() * 900);
+    return `FG-PROD-${randomSuffix}`;
+  }
+
+  const slug = cleanWords
+    .slice(0, 3)
+    .map((w) => w.toUpperCase().slice(0, 6))
+    .join('-');
+
+  return `FG-${slug}`;
+};
+
 export const BOMEditorDialog: React.FC<BOMEditorDialogProps> = ({
   isOpen,
   onClose,
   editingBOM,
 }) => {
   const dispatch = useAppDispatch();
+  const boms = useAppSelector((state) => state.bom.boms);
+  const readyProducts = useAppSelector((state) => state.inventory.readyProducts);
   const rawMaterials = useAppSelector((state) => state.inventory.rawMaterials);
+
+  const [selectedProductId, setSelectedProductId] = useState<string>('');
+  const [isCustomProduct, setIsCustomProduct] = useState<boolean>(false);
+  const [isSkuManuallyEdited, setIsSkuManuallyEdited] = useState<boolean>(false);
 
   const [productCode, setProductCode] = useState(editingBOM?.productCode || '');
   const [productName, setProductName] = useState(editingBOM?.productName || '');
   const [description, setDescription] = useState(editingBOM?.description || '');
   const [version, setVersion] = useState(editingBOM?.version || '1.0');
   const [outputUom, setOutputUom] = useState<UnitOfMeasure>(editingBOM?.outputUom || 'pcs');
+
+  // Compute other BOMs excluding current one being edited
+  const otherBOMs = React.useMemo(() => {
+    return boms.filter((b) => b.id !== editingBOM?.id);
+  }, [boms, editingBOM]);
+
+  const existingBOMProductCodes = React.useMemo(() => {
+    return new Set(otherBOMs.map((b) => b.productCode.toUpperCase().trim()));
+  }, [otherBOMs]);
+
+  const existingBOMProductNames = React.useMemo(() => {
+    return new Set(otherBOMs.map((b) => b.productName.toLowerCase().trim()));
+  }, [otherBOMs]);
+
+  // Validation: Check if selected/entered product is already assigned to another BOM
+  const isDuplicateCode = Boolean(
+    productCode.trim() && existingBOMProductCodes.has(productCode.trim().toUpperCase())
+  );
+  const isDuplicateName = Boolean(
+    productName.trim() && existingBOMProductNames.has(productName.trim().toLowerCase())
+  );
+  const hasDuplicateError = isDuplicateCode || isDuplicateName;
 
   const [items, setItems] = useState<BOMMaterialItem[]>(
     editingBOM?.items || [
@@ -57,12 +115,50 @@ export const BOMEditorDialog: React.FC<BOMEditorDialogProps> = ({
       setVersion(editingBOM.version);
       setOutputUom(editingBOM.outputUom);
       setItems(editingBOM.items);
+      setIsSkuManuallyEdited(true);
+
+      // Check if product is in catalog
+      const matching = readyProducts.find(
+        (p) =>
+          p.code.toUpperCase() === editingBOM.productCode.toUpperCase() ||
+          p.name.toLowerCase() === editingBOM.productName.toLowerCase()
+      );
+      if (matching) {
+        setSelectedProductId(matching.id);
+        setIsCustomProduct(false);
+      } else {
+        setSelectedProductId('__NEW__');
+        setIsCustomProduct(true);
+      }
     } else {
-      setProductCode('');
-      setProductName('');
       setDescription('');
       setVersion('1.0');
       setOutputUom('pcs');
+      setIsSkuManuallyEdited(false);
+
+      // Auto-select the first catalog product that does NOT already have a BOM
+      const unassigned = readyProducts.filter(
+        (p) =>
+          !existingBOMProductCodes.has(p.code.toUpperCase().trim()) &&
+          !existingBOMProductNames.has(p.name.toLowerCase().trim())
+      );
+
+      if (unassigned.length > 0) {
+        const first = unassigned[0];
+        setSelectedProductId(first.id);
+        setIsCustomProduct(false);
+        setProductName(first.name);
+        setProductCode(first.code || generateSKUFromName(first.name));
+        setDescription(first.description || '');
+        setOutputUom(first.uom || 'pcs');
+      } else {
+        // All catalog products already assigned
+        setSelectedProductId('');
+        setIsCustomProduct(false);
+        setProductName('');
+        setProductCode(generateSKUFromName(''));
+      }
+
       if (rawMaterials.length > 0) {
         setItems([
           {
@@ -77,9 +173,38 @@ export const BOMEditorDialog: React.FC<BOMEditorDialogProps> = ({
         ]);
       }
     }
-  }, [editingBOM, rawMaterials]);
+  }, [editingBOM, readyProducts, existingBOMProductCodes, existingBOMProductNames, rawMaterials]);
 
   if (!isOpen) return null;
+
+  const handleProductSelectChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+    const val = e.target.value;
+    if (val === '__NEW__') {
+      setIsCustomProduct(true);
+      setSelectedProductId('__NEW__');
+      setProductName('');
+      setProductCode(generateSKUFromName(''));
+      setIsSkuManuallyEdited(false);
+      setDescription('');
+    } else if (val === '') {
+      setIsCustomProduct(false);
+      setSelectedProductId('');
+      setProductName('');
+      setProductCode('');
+      setIsSkuManuallyEdited(false);
+    } else {
+      setIsCustomProduct(false);
+      setSelectedProductId(val);
+      setIsSkuManuallyEdited(false);
+      const prod = readyProducts.find((p) => p.id === val);
+      if (prod) {
+        setProductName(prod.name);
+        setProductCode(prod.code || generateSKUFromName(prod.name));
+        if (prod.description) setDescription(prod.description);
+        if (prod.uom) setOutputUom(prod.uom);
+      }
+    }
+  };
 
   const handleAddMaterialRow = () => {
     if (rawMaterials.length === 0) return;
@@ -146,14 +271,22 @@ export const BOMEditorDialog: React.FC<BOMEditorDialogProps> = ({
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!productCode || !productName || items.length === 0) return;
+    if (!productCode.trim() || !productName.trim() || items.length === 0) return;
+
+    if (hasDuplicateError) {
+      alert('This product name or SKU is already assigned to an existing Bill of Materials. A product cannot be selected in multiple BOMs.');
+      return;
+    }
+
+    const trimmedCode = productCode.trim().toUpperCase();
+    const trimmedName = productName.trim();
 
     if (editingBOM) {
       dispatch(
         updateBOM({
           ...editingBOM,
-          productCode: productCode.trim().toUpperCase(),
-          productName: productName.trim(),
+          productCode: trimmedCode,
+          productName: trimmedName,
           description: description.trim(),
           version: version.trim(),
           outputUom,
@@ -162,11 +295,13 @@ export const BOMEditorDialog: React.FC<BOMEditorDialogProps> = ({
           updatedAt: new Date().toISOString(),
         })
       );
+      dispatch(setProductBOMId({ productCode: trimmedCode, bomId: editingBOM.id }));
     } else {
+      const newBOMId = `bom-${Date.now()}`;
       dispatch(
         addBOM({
-          productCode: productCode.trim().toUpperCase(),
-          productName: productName.trim(),
+          productCode: trimmedCode,
+          productName: trimmedName,
           description: description.trim(),
           version: version.trim(),
           outputUom,
@@ -175,6 +310,29 @@ export const BOMEditorDialog: React.FC<BOMEditorDialogProps> = ({
           estimatedUnitCost: Number(estimatedTotalCost.toFixed(2)),
         })
       );
+
+      // Link in catalog or add if new
+      const foundInCatalog = readyProducts.find(
+        (p) =>
+          p.code.toUpperCase() === trimmedCode ||
+          p.name.toLowerCase() === trimmedName.toLowerCase()
+      );
+      if (foundInCatalog) {
+        dispatch(setProductBOMId({ productCode: trimmedCode, bomId: newBOMId }));
+      } else {
+        dispatch(
+          addNewReadyProduct({
+            code: trimmedCode,
+            name: trimmedName,
+            description: description.trim() || `Finished product recipe for ${trimmedName}`,
+            stockQuantity: 0,
+            uom: outputUom,
+            unitValue: Number((estimatedTotalCost * 1.5).toFixed(2)) || 100.0,
+            bomId: newBOMId,
+            category: 'Manufactured Goods',
+          })
+        );
+      }
     }
 
     onClose();
@@ -207,33 +365,166 @@ export const BOMEditorDialog: React.FC<BOMEditorDialogProps> = ({
 
         {/* Form Body */}
         <form onSubmit={handleSubmit} className="space-y-4 overflow-y-auto pr-1 flex-1">
-          {/* Product Code & Name */}
+          {/* Product Name Dropdown & SKU */}
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            {/* Finished Product Name Dropdown */}
+            <div className="sm:col-span-2">
+              <div className="flex items-center justify-between mb-1">
+                <label className="block text-xs font-semibold text-zinc-300 uppercase tracking-wider">
+                  Finished Product Name
+                </label>
+                <span className="text-[10px] text-zinc-400">
+                  {isCustomProduct ? 'Custom Product Mode' : 'Catalog Selection'}
+                </span>
+              </div>
+
+              <select
+                required
+                value={isCustomProduct ? '__NEW__' : selectedProductId}
+                onChange={handleProductSelectChange}
+                className={`w-full bg-zinc-950 border rounded-lg px-3 py-2 text-xs text-zinc-100 outline-none transition-colors ${
+                  hasDuplicateError
+                    ? 'border-rose-500 focus:border-rose-500'
+                    : 'border-zinc-800 focus:border-cyan-500'
+                }`}
+              >
+                <option value="" disabled className="text-zinc-500 bg-zinc-900">
+                  -- Select a Finished Product from Catalog --
+                </option>
+
+                {/* Available Products */}
+                <optgroup label="Available Catalog Products (Ready for BOM)" className="bg-zinc-900 text-cyan-400 font-semibold">
+                  {readyProducts
+                    .filter((p) => {
+                      const isAssigned =
+                        existingBOMProductCodes.has(p.code.toUpperCase().trim()) ||
+                        existingBOMProductNames.has(p.name.toLowerCase().trim());
+                      return !isAssigned;
+                    })
+                    .map((p) => (
+                      <option key={p.id} value={p.id} className="text-zinc-100 bg-zinc-900">
+                        {p.name} [{p.code}] — Available
+                      </option>
+                    ))}
+                </optgroup>
+
+                {/* Products with existing BOM (Disabled so user cannot select in multiple BOMs) */}
+                <optgroup label="Assigned Products (Already has a BOM Recipe)" className="bg-zinc-900 text-zinc-500 font-semibold">
+                  {readyProducts
+                    .filter((p) => {
+                      const isAssigned =
+                        existingBOMProductCodes.has(p.code.toUpperCase().trim()) ||
+                        existingBOMProductNames.has(p.name.toLowerCase().trim());
+                      return isAssigned;
+                    })
+                    .map((p) => (
+                      <option
+                        key={p.id}
+                        value={p.id}
+                        disabled
+                        className="text-zinc-500 bg-zinc-900 line-through"
+                      >
+                        {p.name} [{p.code}] — ⛔ BOM already exists (Cannot select in multiple BOMs)
+                      </option>
+                    ))}
+                </optgroup>
+
+                {/* New / Custom Product */}
+                <optgroup label="Custom / New Finished Product" className="bg-zinc-900 text-zinc-300 font-semibold">
+                  <option value="__NEW__" className="text-cyan-400 font-bold bg-zinc-900">
+                    + Enter New Product Not in Catalog...
+                  </option>
+                </optgroup>
+              </select>
+
+              {/* Custom Product Input if __NEW__ chosen */}
+              {isCustomProduct && (
+                <div className="mt-2 animate-in fade-in slide-in-from-top-1 duration-150">
+                  <input
+                    type="text"
+                    required
+                    value={productName}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      setProductName(val);
+                      if (!isSkuManuallyEdited || !productCode.trim()) {
+                        setProductCode(generateSKUFromName(val));
+                      }
+                    }}
+                    placeholder="Enter custom finished product name..."
+                    className="w-full bg-zinc-950 border border-cyan-500/50 focus:border-cyan-400 rounded-lg px-3 py-2 text-xs text-zinc-100 outline-none"
+                  />
+                </div>
+              )}
+
+              {/* Feedback Alert or Helper */}
+              {hasDuplicateError ? (
+                <div className="flex items-center gap-1.5 text-[11px] text-rose-400 mt-1.5 font-medium bg-rose-500/10 border border-rose-500/20 px-2.5 py-1 rounded-lg">
+                  <AlertCircle className="w-3.5 h-3.5 flex-shrink-0" />
+                  <span>
+                    A BOM recipe already exists for this product. Products cannot have multiple BOMs.
+                  </span>
+                </div>
+              ) : selectedProductId && !isCustomProduct ? (
+                <div className="flex items-center gap-1.5 text-[11px] text-emerald-400 mt-1">
+                  <CheckCircle2 className="w-3.5 h-3.5 flex-shrink-0" />
+                  <span>
+                    1-to-1 BOM recipe mapping verified for this finished product.
+                  </span>
+                </div>
+              ) : (
+                <div className="flex items-center justify-between text-[11px] text-zinc-500 mt-1">
+                  <span>Each finished product can only be linked to a single BOM recipe.</span>
+                  <span>
+                    {readyProducts.filter(
+                      (p) =>
+                        !existingBOMProductCodes.has(p.code.toUpperCase().trim()) &&
+                        !existingBOMProductNames.has(p.name.toLowerCase().trim())
+                    ).length}{' '}
+                    available in catalog
+                  </span>
+                </div>
+              )}
+            </div>
+
+            {/* Product Code / SKU (Auto-generated & Editable) */}
             <div className="sm:col-span-1">
-              <label className="block text-xs font-semibold text-zinc-300 uppercase tracking-wider mb-1">
-                Static Product Code / SKU
-              </label>
+              <div className="flex items-center justify-between mb-1">
+                <label className="block text-xs font-semibold text-zinc-300 uppercase tracking-wider">
+                  Product SKU / Code
+                </label>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const generated = generateSKUFromName(productName);
+                    setProductCode(generated);
+                    setIsSkuManuallyEdited(true);
+                  }}
+                  title="Auto-generate or refresh SKU based on product name"
+                  className="flex items-center gap-1 text-[10px] text-cyan-400 hover:text-cyan-300 font-semibold px-2 py-0.5 rounded bg-cyan-500/10 hover:bg-cyan-500/20 border border-cyan-500/30 transition-all cursor-pointer"
+                >
+                  <Sparkles className="w-2.5 h-2.5" />
+                  <span>Auto Gen</span>
+                </button>
+              </div>
               <input
                 type="text"
                 required
                 value={productCode}
-                onChange={(e) => setProductCode(e.target.value)}
+                onChange={(e) => {
+                  setIsSkuManuallyEdited(true);
+                  setProductCode(e.target.value.toUpperCase());
+                }}
                 placeholder="e.g. FG-ROBOT-ARM"
-                className="w-full bg-zinc-950 border border-zinc-800 focus:border-cyan-500 rounded-lg px-3 py-2 text-xs text-zinc-100 outline-none font-mono font-bold"
+                className={`w-full bg-zinc-950 border rounded-lg px-3 py-2 text-xs font-mono font-bold outline-none transition-colors ${
+                  isDuplicateCode
+                    ? 'border-rose-500 text-rose-300 focus:border-rose-500'
+                    : 'border-zinc-800 focus:border-cyan-500 text-cyan-400'
+                }`}
               />
-            </div>
-            <div className="sm:col-span-2">
-              <label className="block text-xs font-semibold text-zinc-300 uppercase tracking-wider mb-1">
-                Finished Product Name
-              </label>
-              <input
-                type="text"
-                required
-                value={productName}
-                onChange={(e) => setProductName(e.target.value)}
-                placeholder="e.g. High-Torque Robotic Arm Actuator"
-                className="w-full bg-zinc-950 border border-zinc-800 focus:border-cyan-500 rounded-lg px-3 py-2 text-xs text-zinc-100 outline-none"
-              />
+              <span className="text-[10px] text-zinc-400 block mt-1">
+                Auto-generated SKU &bull; <span className="text-zinc-200 font-medium">Editable</span> (modify anytime)
+              </span>
             </div>
           </div>
 
@@ -414,7 +705,8 @@ export const BOMEditorDialog: React.FC<BOMEditorDialogProps> = ({
             </button>
             <button
               type="submit"
-              className="flex items-center gap-2 px-5 py-2 bg-cyan-500 hover:bg-cyan-400 text-zinc-950 font-bold text-xs rounded-lg shadow-lg shadow-cyan-500/20 transition-all"
+              disabled={!productCode.trim() || !productName.trim() || hasDuplicateError || items.length === 0}
+              className="flex items-center gap-2 px-5 py-2 bg-cyan-500 hover:bg-cyan-400 disabled:opacity-40 disabled:hover:bg-cyan-500 disabled:cursor-not-allowed text-zinc-950 font-bold text-xs rounded-lg shadow-lg shadow-cyan-500/20 transition-all"
             >
               <Check className="w-4 h-4 stroke-[3]" />
               {editingBOM ? 'Update Recipe' : 'Save BOM Recipe'}
