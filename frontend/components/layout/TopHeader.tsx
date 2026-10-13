@@ -49,8 +49,8 @@ export const TopHeader: React.FC<TopHeaderProps> = ({
       subtitle: 'Catalog, stock thresholds, bin locations, and inventory intake replenishment',
     },
     ready_products: {
-      title: 'Ready Products (Finished Goods)',
-      subtitle: 'Completed inventory automatically credited upon production order confirmation',
+      title: 'Finished Products & SKU Directory',
+      subtitle: 'Master registry of Finished Product Names, Static SKUs, and BOM recipe linkages',
     },
     waste: {
       title: 'Waste Management',

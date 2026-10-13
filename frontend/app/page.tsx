@@ -8,7 +8,7 @@ import { FactoryDashboard } from '@/components/dashboard/FactoryDashboard';
 import { ProductionHub } from '@/components/production/ProductionHub';
 import { BOMHub } from '@/components/bom/BOMHub';
 import { RawMaterialsTable } from '@/components/inventory/RawMaterialsTable';
-import { ReadyProductsTable } from '@/components/inventory/ReadyProductsTable';
+import { FinishedProductsCatalog } from '@/components/inventory/FinishedProductsCatalog';
 import { WasteManagementTable } from '@/components/inventory/WasteManagementTable';
 import { StockAuditTrailTable } from '@/components/inventory/StockAuditTrailTable';
 import { AnalyticsHub } from '@/components/analytics/AnalyticsHub';
@@ -32,11 +32,13 @@ export default function Home() {
   const [isNewMaterialOpen, setIsNewMaterialOpen] = useState(false);
   const [preselectedRestockId, setPreselectedRestockId] = useState<string | undefined>(undefined);
   const [preselectedBOMId, setPreselectedBOMId] = useState<string | undefined>(undefined);
+  const [preselectedBOMProductCode, setPreselectedBOMProductCode] = useState<string | undefined>(undefined);
   const [completingOrder, setCompletingOrder] = useState<ProductionOrder | null>(null);
 
   // Redux state
   const rawMaterials = useAppSelector((state) => state.inventory.rawMaterials);
   const readyProducts = useAppSelector((state) => state.inventory.readyProducts);
+  const boms = useAppSelector((state) => state.bom.boms);
   const wasteRecords = useAppSelector((state) => state.inventory.wasteRecords);
   const auditLogs = useAppSelector((state) => state.inventory.auditLogs);
 
@@ -159,11 +161,22 @@ export default function Home() {
             />
           )}
 
-          {/* 5. Ready Products (Finished Goods) */}
+          {/* 5. Finished Products Directory & SKU Catalog */}
           {currentTab === 'ready_products' && (
-            <ReadyProductsTable
-              products={readyProducts}
-              onProduceMore={() => setIsNewOrderOpen(true)}
+            <FinishedProductsCatalog
+              onProduceMore={(code) => {
+                const b = boms.find((x) => x.productCode.toUpperCase() === code.toUpperCase());
+                setPreselectedBOMId(b?.id);
+                setIsNewOrderOpen(true);
+              }}
+              onOpenNewBOMForProduct={(code) => {
+                setPreselectedBOMProductCode(code);
+                setIsNewBOMOpen(true);
+              }}
+              onOpenNewBOMGeneral={() => {
+                setPreselectedBOMProductCode(undefined);
+                setIsNewBOMOpen(true);
+              }}
             />
           )}
 
@@ -195,7 +208,11 @@ export default function Home() {
 
       <BOMEditorDialog
         isOpen={isNewBOMOpen}
-        onClose={() => setIsNewBOMOpen(false)}
+        onClose={() => {
+          setIsNewBOMOpen(false);
+          setPreselectedBOMProductCode(undefined);
+        }}
+        preselectedProductCode={preselectedBOMProductCode}
       />
 
       <RestockDialog

@@ -46,12 +46,17 @@ export const Sidebar: React.FC<SidebarProps> = ({
 }) => {
   const dispatch = useAppDispatch();
   const rawMaterials = useAppSelector((state) => state.inventory.rawMaterials);
+  const readyProducts = useAppSelector((state) => state.inventory.readyProducts);
+  const boms = useAppSelector((state) => state.bom.boms);
   const wasteRecords = useAppSelector((state) => state.inventory.wasteRecords);
   const orders = useAppSelector((state) => state.production.orders);
 
   const activeOrdersCount = orders.filter((o) => o.status === 'IN_PROGRESS').length;
   const lowStockCount = rawMaterials.filter((m) => m.stockQuantity <= m.minThreshold).length;
   const pendingWasteCount = wasteRecords.filter((w) => w.status === 'LOGGED').length;
+  const pendingBOMCount = readyProducts.filter(
+    (p) => !boms.some((b) => b.productCode.toUpperCase() === p.code.toUpperCase())
+  ).length;
 
   const handleResetData = () => {
     if (confirm('Reset all factory data (Inventory, BOMs, Orders, Waste) to default demo state?')) {
@@ -97,8 +102,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
         },
         {
           id: 'ready_products' as NavItem,
-          label: 'Ready Products',
+          label: 'Finished Products',
           icon: PackageCheck,
+          badge: pendingBOMCount > 0 ? `${pendingBOMCount} need BOM` : undefined,
+          badgeColor: 'bg-cyan-500/20 text-cyan-400',
         },
         {
           id: 'waste' as NavItem,

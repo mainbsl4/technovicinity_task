@@ -23,6 +23,7 @@ interface BOMEditorDialogProps {
   isOpen: boolean;
   onClose: () => void;
   editingBOM?: BillOfMaterials | null;
+  preselectedProductCode?: string;
 }
 
 // Auto-generates clean, standardized SKU from product name
@@ -55,6 +56,7 @@ export const BOMEditorDialog: React.FC<BOMEditorDialogProps> = ({
   isOpen,
   onClose,
   editingBOM,
+  preselectedProductCode,
 }) => {
   const dispatch = useAppDispatch();
   const boms = useAppSelector((state) => state.bom.boms);
@@ -136,27 +138,29 @@ export const BOMEditorDialog: React.FC<BOMEditorDialogProps> = ({
       setOutputUom('pcs');
       setIsSkuManuallyEdited(false);
 
-      // Auto-select the first catalog product that does NOT already have a BOM
-      const unassigned = readyProducts.filter(
-        (p) =>
-          !existingBOMProductCodes.has(p.code.toUpperCase().trim()) &&
-          !existingBOMProductNames.has(p.name.toLowerCase().trim())
-      );
-
-      if (unassigned.length > 0) {
-        const first = unassigned[0];
-        setSelectedProductId(first.id);
-        setIsCustomProduct(false);
-        setProductName(first.name);
-        setProductCode(first.code || generateSKUFromName(first.name));
-        setDescription(first.description || '');
-        setOutputUom(first.uom || 'pcs');
+      if (preselectedProductCode) {
+        const matching = readyProducts.find(
+          (p) => p.code.toUpperCase() === preselectedProductCode.toUpperCase()
+        );
+        if (matching) {
+          setSelectedProductId(matching.id);
+          setIsCustomProduct(false);
+          setProductName(matching.name);
+          setProductCode(matching.code || generateSKUFromName(matching.name));
+          setDescription(matching.description || '');
+          setOutputUom(matching.uom || 'pcs');
+        } else {
+          setSelectedProductId('');
+          setIsCustomProduct(false);
+          setProductName('');
+          setProductCode('');
+        }
       } else {
-        // All catalog products already assigned
+        // Default to unselected so user can choose from the dropdown
         setSelectedProductId('');
         setIsCustomProduct(false);
         setProductName('');
-        setProductCode(generateSKUFromName(''));
+        setProductCode('');
       }
 
       if (rawMaterials.length > 0) {
@@ -173,7 +177,7 @@ export const BOMEditorDialog: React.FC<BOMEditorDialogProps> = ({
         ]);
       }
     }
-  }, [editingBOM, readyProducts, existingBOMProductCodes, existingBOMProductNames, rawMaterials]);
+  }, [editingBOM, preselectedProductCode, readyProducts, existingBOMProductCodes, existingBOMProductNames, rawMaterials]);
 
   if (!isOpen) return null;
 
