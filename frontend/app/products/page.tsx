@@ -24,6 +24,12 @@ export default function ProductsPage() {
 
   const boms = useAppSelector((state) => state.bom.boms);
 
+  const [mounted, setMounted] = useState(false);
+
+  React.useEffect(() => {
+    setMounted(true);
+  }, []);
+
   const handleSelectTab = (tab: NavItem) => {
     if (tab === 'ready_products') {
       setCurrentTab('ready_products');
@@ -31,6 +37,19 @@ export default function ProductsPage() {
       router.push('/');
     }
   };
+
+  if (!mounted) {
+    return (
+      <div className="flex h-screen bg-zinc-950 text-zinc-100 items-center justify-center font-sans">
+        <div className="flex flex-col items-center gap-3">
+          <div className="w-10 h-10 rounded-xl bg-amber-500/10 border border-amber-500/20 flex items-center justify-center animate-pulse">
+            <div className="w-2.5 h-2.5 rounded-full bg-amber-400 animate-ping" />
+          </div>
+          <span className="font-mono text-xs text-zinc-500 tracking-wider uppercase">Loading Products...</span>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="flex h-screen bg-zinc-950 text-zinc-100 overflow-hidden font-sans">

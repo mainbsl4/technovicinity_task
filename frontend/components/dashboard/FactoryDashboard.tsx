@@ -47,6 +47,12 @@ export const FactoryDashboard: React.FC<FactoryDashboardProps> = ({
   const totalFinishedStock = readyProducts.reduce((acc, p) => acc + p.stockQuantity, 0);
   const totalFinishedValue = readyProducts.reduce((acc, p) => acc + p.stockQuantity * p.unitValue, 0);
 
+  const [mounted, setMounted] = React.useState(false);
+
+  React.useEffect(() => {
+    setMounted(true);
+  }, []);
+
   return (
     <div className="space-y-6">
       {/* KPI Cards Row */}
@@ -63,10 +69,10 @@ export const FactoryDashboard: React.FC<FactoryDashboardProps> = ({
             </div>
           </div>
           <div className="mt-2">
-            <span className="text-2xl font-extrabold font-mono text-white tracking-tight">
+            <span suppressHydrationWarning className="text-2xl font-extrabold font-mono text-white tracking-tight">
               {totalFinishedStock} <span className="text-sm font-sans font-medium text-zinc-400">units</span>
             </span>
-            <div className="text-xs text-emerald-400 font-mono mt-0.5">
+            <div suppressHydrationWarning className="text-xs text-emerald-400 font-mono mt-0.5">
               ${totalFinishedValue.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} Valuation
             </div>
           </div>
@@ -84,10 +90,10 @@ export const FactoryDashboard: React.FC<FactoryDashboardProps> = ({
             </div>
           </div>
           <div className="mt-2">
-            <span className="text-2xl font-extrabold font-mono text-white tracking-tight">
+            <span suppressHydrationWarning className="text-2xl font-extrabold font-mono text-white tracking-tight">
               {rawMaterials.length - lowStockItems.length} / {rawMaterials.length}
             </span>
-            <div className="text-xs mt-0.5 flex items-center gap-1.5">
+            <div suppressHydrationWarning className="text-xs mt-0.5 flex items-center gap-1.5">
               {lowStockItems.length > 0 ? (
                 <span className="text-rose-400 font-bold flex items-center gap-1">
                   <AlertTriangle className="w-3 h-3" />
@@ -115,10 +121,10 @@ export const FactoryDashboard: React.FC<FactoryDashboardProps> = ({
             </div>
           </div>
           <div className="mt-2">
-            <span className="text-2xl font-extrabold font-mono text-white tracking-tight">
+            <span suppressHydrationWarning className="text-2xl font-extrabold font-mono text-white tracking-tight">
               {activeOrders.length} Running
             </span>
-            <div className="text-xs text-zinc-400 mt-0.5">
+            <div suppressHydrationWarning className="text-xs text-zinc-400 mt-0.5">
               {stagedOrders.length} Staged • {completedOrders.length} Completed Runs
             </div>
           </div>
@@ -136,10 +142,10 @@ export const FactoryDashboard: React.FC<FactoryDashboardProps> = ({
             </div>
           </div>
           <div className="mt-2">
-            <span className="text-2xl font-extrabold font-mono text-white tracking-tight">
+            <span suppressHydrationWarning className="text-2xl font-extrabold font-mono text-white tracking-tight">
               {wasteRecords.length} Entries
             </span>
-            <div className="text-xs text-rose-400 mt-0.5">
+            <div suppressHydrationWarning className="text-xs text-rose-400 mt-0.5">
               {wasteRecords.filter((w) => w.status === 'LOGGED').length} Pending Disposition
             </div>
           </div>
@@ -314,8 +320,8 @@ export const FactoryDashboard: React.FC<FactoryDashboardProps> = ({
                       >
                         {log.quantityChange > 0 ? `+${log.quantityChange}` : log.quantityChange} {log.uom}
                       </span>
-                      <span className="text-[10px] text-zinc-500 block font-mono">
-                        {new Date(log.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                      <span suppressHydrationWarning className="text-[10px] text-zinc-500 block font-mono">
+                        {mounted ? new Date(log.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ''}
                       </span>
                     </div>
                   </div>
