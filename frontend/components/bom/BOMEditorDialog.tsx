@@ -5,6 +5,7 @@ import { useAppDispatch, useAppSelector } from '@/lib/redux/hooks';
 import { addBOM, updateBOM } from '@/lib/redux/slices/bomSlice';
 import { setProductBOMId, addNewReadyProduct } from '@/lib/redux/slices/inventorySlice';
 import { BillOfMaterials, BOMMaterialItem, UnitOfMeasure } from '@/lib/types';
+import { api } from '@/lib/api';
 import { 
   Layers, 
   X, 
@@ -16,7 +17,8 @@ import {
   Info,
   Lock,
   CheckCircle2,
-  AlertTriangle
+  AlertTriangle,
+  Loader2
 } from 'lucide-react';
 
 interface BOMEditorDialogProps {
@@ -265,6 +267,9 @@ export const BOMEditorDialog: React.FC<BOMEditorDialogProps> = ({
     );
   };
 
+  const [isSaving, setIsSaving] = useState<boolean>(false);
+  const [apiError, setApiError] = useState<string | null>(null);
+
   // Calculate estimated unit cost
   const estimatedTotalCost = items.reduce((acc, row) => {
     const mat = rawMaterials.find((m) => m.id === row.materialId);
@@ -273,7 +278,7 @@ export const BOMEditorDialog: React.FC<BOMEditorDialogProps> = ({
     return acc + totalQtyNeeded * mat.unitCost;
   }, 0);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!productCode.trim() || !productName.trim() || items.length === 0) return;
 
@@ -285,9 +290,12 @@ export const BOMEditorDialog: React.FC<BOMEditorDialogProps> = ({
     const trimmedCode = productCode.trim().toUpperCase();
     const trimmedName = productName.trim();
 
-    if (editingBOM) {
-      dispatch(
-        updateBOM({
+    setIsSaving(true);
+    setApiError(null);
+
+    try {
+      if (editingBOM) {
+        const payload: BillOfMaterials = {
           ...editingBOM,
           productCode: trimmedCode,
           productName: trimmedName,
@@ -297,13 +305,22 @@ export const BOMEditorDialog: React.FC<BOMEditorDialogProps> = ({
           items,
           estimatedUnitCost: Number(estimatedTotalCost.toFixed(2)),
           updatedAt: new Date().toISOString(),
-        })
-      );
-      dispatch(setProductBOMId({ productCode: trimmedCode, bomId: editingBOM.id }));
-    } else {
-      const newBOMId = `bom-${Date.now()}`;
-      dispatch(
-        addBOM({
+        };
+
+        let updatedData = payload;
+        try {
+          updatedData = await api.updateBOM(payload);
+        } catch (apiErr: any) {
+          console.warn('Backend API update failed, continuing with local sync:', apiErr);
+          if (apiErr.message?.includes('400')) {
+            throw apiErr;
+          }
+        }
+
+        dispatch(updateBOM(updatedData));
+        dispatch(setProductBOMId({ productCode: trimmedCode, bomId: editingBOM.id }));
+      } else {
+        const payload = {
           productCode: trimmedCode,
           productName: trimmedName,
           description: description.trim(),
@@ -312,34 +329,56 @@ export const BOMEditorDialog: React.FC<BOMEditorDialogProps> = ({
           baseQuantity: 1,
           items,
           estimatedUnitCost: Number(estimatedTotalCost.toFixed(2)),
-        })
-      );
+        };
 
-      // Link in catalog or add if new
-      const foundInCatalog = readyProducts.find(
-        (p) =>
-          p.code.toUpperCase() === trimmedCode ||
-          p.name.toLowerCase() === trimmedName.toLowerCase()
-      );
-      if (foundInCatalog) {
-        dispatch(setProductBOMId({ productCode: trimmedCode, bomId: newBOMId }));
-      } else {
-        dispatch(
-          addNewReadyProduct({
-            code: trimmedCode,
-            name: trimmedName,
-            description: description.trim() || `Finished product recipe for ${trimmedName}`,
-            stockQuantity: 0,
-            uom: outputUom,
-            unitValue: Number((estimatedTotalCost * 1.5).toFixed(2)) || 100.0,
-            bomId: newBOMId,
-            category: 'Manufactured Goods',
-          })
+        let createdBOM: BillOfMaterials;
+        try {
+          createdBOM = await api.createBOM(payload);
+        } catch (apiErr: any) {
+          console.warn('Backend API create failed, falling back to local creation:', apiErr);
+          if (apiErr.message?.includes('400')) {
+            throw apiErr;
+          }
+          createdBOM = {
+            ...payload,
+            id: `bom-${Date.now()}`,
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
+          };
+        }
+
+        dispatch(addBOM(createdBOM));
+
+        // Link in catalog or add if new
+        const foundInCatalog = readyProducts.find(
+          (p) =>
+            p.code.toUpperCase() === trimmedCode ||
+            p.name.toLowerCase() === trimmedName.toLowerCase()
         );
+        if (foundInCatalog) {
+          dispatch(setProductBOMId({ productCode: trimmedCode, bomId: createdBOM.id }));
+        } else {
+          dispatch(
+            addNewReadyProduct({
+              code: trimmedCode,
+              name: trimmedName,
+              description: description.trim() || `Finished product recipe for ${trimmedName}`,
+              stockQuantity: 0,
+              uom: outputUom,
+              unitValue: Number((estimatedTotalCost * 1.5).toFixed(2)) || 100.0,
+              bomId: createdBOM.id,
+              category: 'Manufactured Goods',
+            })
+          );
+        }
       }
-    }
 
-    onClose();
+      onClose();
+    } catch (err: any) {
+      setApiError(err.message || 'Failed to save Bill of Materials');
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   return (
@@ -369,6 +408,20 @@ export const BOMEditorDialog: React.FC<BOMEditorDialogProps> = ({
 
         {/* Form Body */}
         <form onSubmit={handleSubmit} className="space-y-4 overflow-y-auto pr-1 flex-1">
+          {apiError && (
+            <div className="p-3 rounded-xl bg-rose-500/10 border border-rose-500/30 flex items-start gap-2.5 text-xs text-rose-300">
+              <AlertCircle className="w-4 h-4 text-rose-400 flex-shrink-0 mt-0.5" />
+              <div className="flex-1 font-mono">{apiError}</div>
+              <button
+                type="button"
+                onClick={() => setApiError(null)}
+                className="text-rose-400 hover:text-white"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          )}
+
           {/* Product Name Dropdown & SKU */}
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
             {/* Finished Product Name Dropdown */}
@@ -709,11 +762,20 @@ export const BOMEditorDialog: React.FC<BOMEditorDialogProps> = ({
             </button>
             <button
               type="submit"
-              disabled={!productCode.trim() || !productName.trim() || hasDuplicateError || items.length === 0}
+              disabled={isSaving || !productCode.trim() || !productName.trim() || hasDuplicateError || items.length === 0}
               className="flex items-center gap-2 px-5 py-2 bg-cyan-500 hover:bg-cyan-400 disabled:opacity-40 disabled:hover:bg-cyan-500 disabled:cursor-not-allowed text-zinc-950 font-bold text-xs rounded-lg shadow-lg shadow-cyan-500/20 transition-all"
             >
-              <Check className="w-4 h-4 stroke-[3]" />
-              {editingBOM ? 'Update Recipe' : 'Save BOM Recipe'}
+              {isSaving ? (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  <span>Saving...</span>
+                </>
+              ) : (
+                <>
+                  <Check className="w-4 h-4 stroke-[3]" />
+                  <span>{editingBOM ? 'Update Recipe' : 'Save BOM Recipe'}</span>
+                </>
+              )}
             </button>
           </div>
         </form>

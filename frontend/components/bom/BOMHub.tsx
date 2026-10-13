@@ -5,6 +5,7 @@ import { useAppDispatch, useAppSelector } from '@/lib/redux/hooks';
 import { BillOfMaterials } from '@/lib/types';
 import { deleteBOM } from '@/lib/redux/slices/bomSlice';
 import { unlinkProductBOM } from '@/lib/redux/slices/inventorySlice';
+import { api } from '@/lib/api';
 import { BOMEditorDialog } from './BOMEditorDialog';
 import { 
   Layers, 
@@ -43,8 +44,13 @@ export const BOMHub: React.FC<BOMHubProps> = ({
       b.description.toLowerCase().includes(searchTerm.toLowerCase())
   );
 
-  const handleDelete = (id: string, name: string) => {
+  const handleDelete = async (id: string, name: string) => {
     if (confirm(`Delete BOM recipe for "${name}"?`)) {
+      try {
+        await api.deleteBOM(id);
+      } catch (err) {
+        console.warn('Backend delete failed, continuing with local delete:', err);
+      }
       dispatch(deleteBOM(id));
       dispatch(unlinkProductBOM(id));
     }

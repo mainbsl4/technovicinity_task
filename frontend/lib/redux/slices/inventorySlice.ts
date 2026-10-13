@@ -254,6 +254,14 @@ export const inventorySlice = createSlice({
       state.wasteRecords = SEED_WASTE_RECORDS;
       state.auditLogs = SEED_AUDIT_LOGS;
     },
+
+    setReadyProducts: (state, action: PayloadAction<ReadyProduct[]>) => {
+      state.readyProducts = action.payload;
+    },
+
+    setRawMaterials: (state, action: PayloadAction<RawMaterial[]>) => {
+      state.rawMaterials = action.payload;
+    },
   },
 });
 
@@ -266,6 +274,8 @@ export const {
   executeProductionLifecycleRouting,
   updateWasteStatus,
   resetInventoryToSeed,
+  setReadyProducts,
+  setRawMaterials,
 } = inventorySlice.actions;
 
 export default inventorySlice.reducer;

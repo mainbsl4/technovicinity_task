@@ -51,6 +51,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const wasteRecords = useAppSelector((state) => state.inventory.wasteRecords);
   const orders = useAppSelector((state) => state.production.orders);
 
+  const [mounted, setMounted] = React.useState(false);
+  React.useEffect(() => {
+    setMounted(true);
+  }, []);
+
   const activeOrdersCount = orders.filter((o) => o.status === 'IN_PROGRESS').length;
   const lowStockCount = rawMaterials.filter((m) => m.stockQuantity <= m.minThreshold).length;
   const pendingWasteCount = wasteRecords.filter((w) => w.status === 'LOGGED').length;
@@ -80,7 +85,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
           id: 'production' as NavItem,
           label: 'Production Orders',
           icon: Play,
-          badge: activeOrdersCount > 0 ? activeOrdersCount : undefined,
+          badge: mounted && activeOrdersCount > 0 ? activeOrdersCount : undefined,
           badgeColor: 'bg-amber-500/20 text-amber-400',
         },
         {
@@ -97,21 +102,21 @@ export const Sidebar: React.FC<SidebarProps> = ({
           id: 'raw_materials' as NavItem,
           label: 'Raw Materials',
           icon: Boxes,
-          badge: lowStockCount > 0 ? `${lowStockCount} low` : undefined,
+          badge: mounted && lowStockCount > 0 ? `${lowStockCount} low` : undefined,
           badgeColor: 'bg-rose-500/20 text-rose-400',
         },
         {
           id: 'ready_products' as NavItem,
           label: 'Finished Products',
           icon: PackageCheck,
-          badge: pendingBOMCount > 0 ? `${pendingBOMCount} need BOM` : undefined,
+          badge: mounted && pendingBOMCount > 0 ? `${pendingBOMCount} need BOM` : undefined,
           badgeColor: 'bg-cyan-500/20 text-cyan-400',
         },
         {
           id: 'waste' as NavItem,
           label: 'Waste Management',
           icon: Trash2,
-          badge: pendingWasteCount > 0 ? pendingWasteCount : undefined,
+          badge: mounted && pendingWasteCount > 0 ? pendingWasteCount : undefined,
           badgeColor: 'bg-rose-500/20 text-rose-400',
         },
         {

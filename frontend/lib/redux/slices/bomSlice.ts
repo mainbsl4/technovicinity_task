@@ -39,12 +39,16 @@ export const bomSlice = createSlice({
       state.boms = state.boms.filter((b) => b.id !== action.payload);
     },
 
+    setBOMs: (state, action: PayloadAction<BillOfMaterials[]>) => {
+      state.boms = action.payload;
+    },
+
     resetBOMsToSeed: (state) => {
       state.boms = SEED_BOMS;
     },
   },
 });
 
-export const { addBOM, updateBOM, deleteBOM, resetBOMsToSeed } = bomSlice.actions;
+export const { addBOM, updateBOM, deleteBOM, setBOMs, resetBOMsToSeed } = bomSlice.actions;
 
 export default bomSlice.reducer;

@@ -28,8 +28,13 @@ export const TopHeader: React.FC<TopHeaderProps> = ({
   onOpenRestock,
   onOpenNewBOM,
 }) => {
+  const [mounted, setMounted] = React.useState(false);
   const rawMaterials = useAppSelector((state) => state.inventory.rawMaterials);
   const lowStockCount = rawMaterials.filter((m) => m.stockQuantity <= m.minThreshold).length;
+
+  React.useEffect(() => {
+    setMounted(true);
+  }, []);
 
   const titles: Record<NavItem, { title: string; subtitle: string }> = {
     dashboard: {
@@ -86,7 +91,7 @@ export const TopHeader: React.FC<TopHeaderProps> = ({
       </div>
 
       <div className="flex items-center gap-2.5">
-        {lowStockCount > 0 && (
+        {mounted && lowStockCount > 0 && (
           <div className="hidden lg:flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-rose-500/10 border border-rose-500/30 text-rose-400 text-xs font-semibold">
             <ShieldAlert className="w-3.5 h-3.5" />
             <span>{lowStockCount} raw material{lowStockCount > 1 ? 's' : ''} low</span>

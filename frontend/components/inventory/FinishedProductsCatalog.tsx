@@ -4,6 +4,7 @@ import React, { useState } from 'react';
 import { useAppDispatch, useAppSelector } from '@/lib/redux/hooks';
 import { ReadyProduct, UnitOfMeasure } from '@/lib/types';
 import { addNewReadyProduct } from '@/lib/redux/slices/inventorySlice';
+import { api } from '@/lib/api';
 import { 
   PackageCheck, 
   Search, 
@@ -18,7 +19,8 @@ import {
   Sparkles, 
   ExternalLink,
   X,
-  Filter
+  Filter,
+  Loader2
 } from 'lucide-react';
 
 interface FinishedProductsCatalogProps {
@@ -104,32 +106,55 @@ export const FinishedProductsCatalog: React.FC<FinishedProductsCatalogProps> = (
     setIsAddModalOpen(true);
   };
 
-  const handleSaveNewProduct = (e: React.FormEvent) => {
+  const [isSaving, setIsSaving] = useState(false);
+
+  const handleSaveNewProduct = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newProductName.trim() || !newProductCode.trim()) return;
 
     const trimmedCode = newProductCode.trim().toUpperCase();
     const trimmedName = newProductName.trim();
 
-    dispatch(
-      addNewReadyProduct({
-        code: trimmedCode,
-        name: trimmedName,
-        description: newDescription.trim() || `Finished product model ${trimmedName}`,
-        stockQuantity: 0,
-        uom: newUom,
-        unitValue: parseFloat(newUnitValue) || 100.0,
-        bomId: '',
-        category: newCategory,
-      })
-    );
+    setIsSaving(true);
+    try {
+      let createdProduct: ReadyProduct;
+      try {
+        createdProduct = await api.createProduct({
+          code: trimmedCode,
+          name: trimmedName,
+          description: newDescription.trim() || `Finished product model ${trimmedName}`,
+          stockQuantity: 0,
+          uom: newUom,
+          unitValue: parseFloat(newUnitValue) || 100.0,
+          bomId: '',
+          category: newCategory,
+        });
+      } catch (apiErr) {
+        console.warn('Backend product creation failed, continuing with local creation:', apiErr);
+        createdProduct = {
+          id: `rp-${Date.now()}`,
+          code: trimmedCode,
+          name: trimmedName,
+          description: newDescription.trim() || `Finished product model ${trimmedName}`,
+          stockQuantity: 0,
+          uom: newUom,
+          unitValue: parseFloat(newUnitValue) || 100.0,
+          bomId: '',
+          category: newCategory,
+          totalProduced: 0,
+        };
+      }
 
-    setIsAddModalOpen(false);
+      dispatch(addNewReadyProduct(createdProduct));
+      setIsAddModalOpen(false);
 
-    if (autoOpenBOM) {
-      setTimeout(() => {
-        onOpenNewBOMForProduct(trimmedCode);
-      }, 100);
+      if (autoOpenBOM) {
+        setTimeout(() => {
+          onOpenNewBOMForProduct(trimmedCode);
+        }, 100);
+      }
+    } finally {
+      setIsSaving(false);
     }
   };
 
@@ -579,11 +604,20 @@ export const FinishedProductsCatalog: React.FC<FinishedProductsCatalogProps> = (
                 </button>
                 <button
                   type="submit"
-                  disabled={!newProductName.trim() || !newProductCode.trim()}
+                  disabled={isSaving || !newProductName.trim() || !newProductCode.trim()}
                   className="flex items-center gap-2 px-5 py-2 bg-cyan-500 hover:bg-cyan-400 disabled:opacity-40 text-zinc-950 font-bold text-xs rounded-lg shadow-lg shadow-cyan-500/20 transition-all"
                 >
-                  <Check className="w-4 h-4 stroke-[3]" />
-                  <span>Register Product</span>
+                  {isSaving ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      <span>Registering...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Check className="w-4 h-4 stroke-[3]" />
+                      <span>Register Product</span>
+                    </>
+                  )}
                 </button>
               </div>
             </form>
